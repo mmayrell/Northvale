@@ -1,0 +1,49 @@
+name: ScopeLoop Agent Delivery
+on:
+  repository_dispatch:
+    types: [scopeloop-delivery]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    env:
+      SL_BRANCH: ${{ github.event.client_payload.branch }}
+      SL_TITLE: ${{ github.event.client_payload.title }}
+      SL_RUN_ID: ${{ github.event.client_payload.runId }}
+      SL_MODE: ${{ github.event.client_payload.automationMode }}
+      SL_WORK_ORDER_B64: ${{ github.event.client_payload.workOrder }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Prepare branch and work order
+        run: |
+          git config user.name "ScopeLoop Agent"
+          git config user.email "agent@scopeloop.ai"
+          git checkout -b "$SL_BRANCH"
+          mkdir -p .scopeloop
+          printf '%s' "$SL_WORK_ORDER_B64" | base64 -d > .scopeloop/work-order.md
+      - name: Run Claude Code
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude -p "Read .scopeloop/work-order.md and implement the requested change directly in this repository. Follow existing conventions and make all necessary edits." --permission-mode bypassPermissions || true
+      - name: Commit and open pull request
+        env:
+          GH_TOKEN: ${{ secrets.SCOPELOOP_GH_TOKEN }}
+        run: |
+          rm -f .scopeloop/work-order.md
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The agent produced no changes."
+            exit 0
+          fi
+          git commit -m "ScopeLoop: $SL_TITLE"
+          git push origin "$SL_BRANCH"
+          gh pr create --title "ScopeLoop: $SL_TITLE" --body "Automated delivery run $SL_RUN_ID from ScopeLoop." --head "$SL_BRANCH"
