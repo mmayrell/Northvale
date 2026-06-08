@@ -1,0 +1,31 @@
+name: ScopeLoop Smoke Test
+on:
+  repository_dispatch:
+    types: [scopeloop-smoke-test]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      SL_BRANCH: ${{ github.event.client_payload.branch }}
+      SL_RUN_ID: ${{ github.event.client_payload.runId }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Make a trivial change
+        run: |
+          git config user.name "ScopeLoop Agent"
+          git config user.email "agent@scopeloop.ai"
+          git checkout -b "$SL_BRANCH"
+          printf 'ScopeLoop smoke test — run %s at %s\n' "$SL_RUN_ID" "$(date -u)" > SCOPELOOP-SMOKE-TEST.md
+          git add -A
+          git commit -m "ScopeLoop smoke test"
+          git push origin "$SL_BRANCH"
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr create --title "ScopeLoop smoke test" --body "Mechanics check: confirms ScopeLoop can dispatch a workflow, commit, and open a PR. Safe to close." --head "$SL_BRANCH"
